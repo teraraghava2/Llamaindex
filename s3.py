@@ -1,4 +1,4 @@
-import numpy as np
+hi import numpy as np
 from sklearn.linear_model import LinearRegression
 from rouge_score import rouge_scorer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -129,3 +129,58 @@ def evaluate_summary(reference, summary, embeddings_model):
     results = scorer.calculate_s3_score(reference, summary, ref_embedding, sum_embedding)
     
     return results
+    
+    
+    
+    def compute_s3_score(transcript_chunks, summary_chunks, bert_model=None):
+    """
+    Compute S3 score using pre-tokenized chunks from generate_reports.py
+    
+    Args:
+        transcript_chunks: Already tokenized transcript chunks from tokenize_with_sliding_window
+        summary_chunks: Already tokenized summary chunks from tokenize_with_sliding_window
+        bert_model: Optional pre-loaded BERT model instance from generate_reports.py
+    Returns:
+        float: S3 score combining semantic similarity and ROUGE scores
+    """
+    # Get the BERT model from parent context if not provided
+    if bert_model is None:
+        from transformers import BertModel
+        bert_model = BertModel.from_pretrained("bert-base-uncased")
+    
+    # Since chunks are already tokenized, directly convert to tensors
+    import torch
+    
+    # Convert tokenized chunks to input tensors
+    def prepare_tokens_for_bert(chunks):
+        # Combine the pre-tokenized chunks into proper format for BERT
+        input_ids = torch.tensor([chunk[:512] for chunk in chunks])  # Truncate to BERT's max length
+        attention_mask = (input_ids != 0).long()
+        return {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask
+        }
+    
+    # Get BERT embeddings using the pre-tokenized chunks
+    with torch.no_grad():
+        # Process transcript chunks
+        transcript_inputs = prepare_tokens_for_bert(transcript_chunks)
+        transcript_embeddings = bert_model(**transcript_inputs)[0][:, 0, :]  # Get CLS token embeddings
+        
+        # Process summary chunks
+        summary_inputs = prepare_tokens_for_bert(summary_chunks)
+        summary_embeddings = bert_model(**summary_inputs)[0][:, 0, :]  # Get CLS token embeddings
+    
+    # Calculate semantic similarity
+    cos_sim = torch.nn.functional.cosine_similarity(transcript_embeddings.mean(dim=0),
+                                                  summary_embeddings.mean(dim=0),
+                                                  dim=0)
+    
+    # We can use the already calculated ROUGE scores from generate_reports.py
+    # The rouge variable is already available in the generate_reports.py scope
+    # Combine ROUGE and semantic scores
+    s3_score = 0.5 * (rouge['rouge1'] + cos_sim.item())  # Assuming rouge1 is what we want to use
+    
+    return s3_score
+    
+    
